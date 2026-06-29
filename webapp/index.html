@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tremor Suppression Glove — Live Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #111; color: #eee; padding: 16px; }
+    h1 { font-size: 1.1rem; margin-bottom: 12px; color: #7cf; }
+    #controls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; align-items: center; }
+    button { padding: 6px 14px; border: none; border-radius: 4px; cursor: pointer;
+             background: #335; color: #eee; font-size: 0.85rem; }
+    button:hover { background: #558; }
+    button.active { background: #3a7; }
+    select, input[type=file] { background: #222; color: #eee; border: 1px solid #444;
+                                border-radius: 4px; padding: 4px 8px; font-size: 0.85rem; }
+    #status { font-size: 0.8rem; color: #aaa; padding: 4px 8px; background: #222;
+              border-radius: 4px; min-width: 120px; }
+    #status.ok   { color: #3d9; }
+    #status.warn { color: #fa3; }
+    #chart-wrap { position: relative; height: 400px; }
+    canvas { border-radius: 6px; }
+    #stats { display: flex; gap: 16px; margin-top: 10px; font-size: 0.8rem; color: #aaa; }
+    .stat { background: #1a1a2e; padding: 6px 12px; border-radius: 4px; }
+    .stat span { color: #7cf; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>Tremor Suppression Glove — Live Dashboard</h1>
+
+  <div id="controls">
+    <select id="transport-select">
+      <option value="mock">Mock (synthetic)</option>
+      <option value="file">File replay</option>
+      <option value="ble">BLE (real device)</option>
+    </select>
+
+    <input type="file" id="file-input" accept=".bin,.csv" style="display:none">
+
+    <button id="btn-start">Start</button>
+    <button id="btn-stop" disabled>Stop</button>
+    <button id="btn-download">Download CSV</button>
+
+    <div id="status">Stopped</div>
+  </div>
+
+  <div id="chart-wrap">
+    <canvas id="chart"></canvas>
+  </div>
+
+  <div id="stats">
+    <div class="stat">Gyro mag: <span id="s-gyro">—</span> rad/s</div>
+    <div class="stat">RMS: <span id="s-rms">—</span> rad/s</div>
+    <div class="stat">State: <span id="s-state">—</span></div>
+    <div class="stat">Drive CH0: <span id="s-drive">—</span></div>
+    <div class="stat">Packets: <span id="s-count">0</span></div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
