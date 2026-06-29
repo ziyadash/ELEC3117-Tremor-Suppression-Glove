@@ -41,8 +41,8 @@ void test_idle_to_active_after_hold(void)
     uint32_t now = 0;
     /* Below threshold first */
     run_for_ms(0.05f, 100u, &now);
-    /* Above ON threshold for exactly on_hold_ms */
-    TremorState s = run_for_ms(0.20f, 300u, &now);
+    /* Above ON threshold for on_hold_ms + 1 step (timer starts on first detection tick) */
+    TremorState s = run_for_ms(0.20f, 305u, &now);
     TEST_ASSERT_EQUAL_INT(TREMOR_STATE_ACTIVE, s);
 }
 
@@ -89,8 +89,9 @@ void test_transition_time_uses_ms_not_samples(void)
     }
     TEST_ASSERT_EQUAL_INT(TREMOR_STATE_IDLE, td.state);
 
-    /* 5 more steps × 10 ms = 50 ms more → total 300 ms → should activate */
-    for (int i = 0; i < 5; i++) {
+    /* 6 more steps × 10 ms = 60 ms more → total 310 ms → should activate
+       (timer starts on first detection tick, so need on_hold_ms + 1 step) */
+    for (int i = 0; i < 6; i++) {
         now += 10;
         tremor_update(&td, 0.20f, now);
     }
