@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>IMU Telemetry — Live Orientation</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+<div id="app">
+  <header>
+    <div class="brand">
+      <span class="status-dot" id="statusDot"></span>
+      <span><b>IMU Telemetry</b> · TremorGlove-IMU</span>
+    </div>
+    <div class="header-actions">
+      <button id="tremorToggleBtn">Tremor detection: off</button>
+      <button id="connectBtn">Connect device</button>
+    </div>
+  </header>
+
+  <div id="sidebar">
+    <div class="readout-group">
+      <div class="readout-label">Quaternion</div>
+      <div class="readout-row"><span class="axis">w</span><span class="val" id="qw">0.0000</span></div>
+      <div class="readout-row"><span class="axis">x</span><span class="val" id="qx">0.0000</span></div>
+      <div class="readout-row"><span class="axis">y</span><span class="val" id="qy">0.0000</span></div>
+      <div class="readout-row"><span class="axis">z</span><span class="val" id="qz">0.0000</span></div>
+    </div>
+    <div class="readout-group">
+      <div class="readout-label">Euler (deg)</div>
+      <div class="readout-row"><span class="axis">roll</span><span class="val" id="eRoll">0.0</span></div>
+      <div class="readout-row"><span class="axis">pitch</span><span class="val" id="ePitch">0.0</span></div>
+      <div class="readout-row"><span class="axis">yaw</span><span class="val" id="eYaw">0.0</span></div>
+    </div>
+    <div class="readout-group">
+      <div class="readout-label">Linear accel (g)</div>
+      <div class="readout-row"><span class="axis">x</span><span class="val" id="aX">0.000</span></div>
+      <div class="readout-row"><span class="axis">y</span><span class="val" id="aY">0.000</span></div>
+      <div class="readout-row"><span class="axis">z</span><span class="val" id="aZ">0.000</span></div>
+      <div class="readout-row"><span class="axis">|a|</span><span class="val" id="aMag">0.000</span></div>
+    </div>
+    <div class="readout-group">
+      <div class="readout-label">Position, est. (drifts, re-centers)</div>
+      <div class="readout-row"><span class="axis">x</span><span class="val" id="pX">0.000</span></div>
+      <div class="readout-row"><span class="axis">y</span><span class="val" id="pY">0.000</span></div>
+      <div class="readout-row"><span class="axis">z</span><span class="val" id="pZ">0.000</span></div>
+    </div>
+    <div class="readout-group tremor-only">
+      <div class="readout-label">Tremor detection</div>
+      <div class="readout-row"><span class="axis">state</span><span class="val" id="tremorState">idle</span></div>
+      <div class="readout-row"><span class="axis">freq</span><span class="val" id="tremorFreq">--</span></div>
+      <div class="readout-row"><span class="axis">band rms (g)</span><span class="val" id="tremorRms">0.000</span></div>
+    </div>
+    <div class="readout-group">
+      <div class="readout-label">Link</div>
+      <div class="readout-row"><span class="axis">packets/s</span><span class="val" id="pktRate">0</span></div>
+      <div class="readout-row"><span class="axis">state</span><span class="val" id="linkState">idle</span></div>
+    </div>
+  </div>
+
+  <div id="viewport">
+    <div id="canvas-holder"></div>
+    <div class="empty-hint" id="emptyHint">
+      no device connected<br>
+      click "connect device" and select TremorGlove-IMU<br>
+      requires Chrome or Edge, desktop or Android
+    </div>
+    <div class="error-banner" id="errorBanner"></div>
+  </div>
+
+  <div id="scope">
+    <div class="scope-col">
+      <div class="scope-label">Roll axis · rolling trace</div>
+      <canvas id="scope-canvas-roll"></canvas>
+    </div>
+    <div class="scope-col">
+      <div class="scope-label">Accel magnitude (g) · rolling trace</div>
+      <canvas id="scope-canvas-accel"></canvas>
+    </div>
+    <div class="scope-col tremor-only">
+      <div class="scope-label">Tremor-band RMS (g) · rolling trace</div>
+      <canvas id="scope-canvas-tremor"></canvas>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
