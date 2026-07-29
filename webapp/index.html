@@ -1,63 +1,100 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tremor Suppression Glove — Live Dashboard</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, sans-serif; background: #111; color: #eee; padding: 16px; }
-    h1 { font-size: 1.1rem; margin-bottom: 12px; color: #7cf; }
-    #controls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; align-items: center; }
-    button { padding: 6px 14px; border: none; border-radius: 4px; cursor: pointer;
-             background: #335; color: #eee; font-size: 0.85rem; }
-    button:hover { background: #558; }
-    button.active { background: #3a7; }
-    select, input[type=file] { background: #222; color: #eee; border: 1px solid #444;
-                                border-radius: 4px; padding: 4px 8px; font-size: 0.85rem; }
-    #status { font-size: 0.8rem; color: #aaa; padding: 4px 8px; background: #222;
-              border-radius: 4px; min-width: 120px; }
-    #status.ok   { color: #3d9; }
-    #status.warn { color: #fa3; }
-    #chart-wrap { position: relative; height: 400px; }
-    canvas { border-radius: 6px; }
-    #stats { display: flex; gap: 16px; margin-top: 10px; font-size: 0.8rem; color: #aaa; }
-    .stat { background: #1a1a2e; padding: 6px 12px; border-radius: 4px; }
-    .stat span { color: #7cf; font-weight: bold; }
-  </style>
+<meta charset="UTF-8" />
+<title>Tremor Glove — Live Telemetry</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
 </head>
 <body>
-  <h1>Tremor Suppression Glove — Live Dashboard</h1>
 
-  <div id="controls">
-    <select id="transport-select">
-      <option value="mock">Mock (synthetic)</option>
-      <option value="file">File replay</option>
-      <option value="ble">BLE (real device)</option>
-    </select>
+<div id="app">
+  <header>
+    <div class="brand">
+      <span class="status-dot" id="statusDot"></span>
+      <span><b>Tremor Glove</b> · TremorGlove</span>
+    </div>
+    <div class="header-actions">
+      <button id="tremorToggleBtn">Tremor detection: off</button>
+      <button id="connectBtn">Connect device</button>
+    </div>
+  </header>
 
-    <input type="file" id="file-input" accept=".bin,.csv" style="display:none">
-
-    <button id="btn-start">Start</button>
-    <button id="btn-stop" disabled>Stop</button>
-    <button id="btn-download">Download CSV</button>
-
-    <div id="status">Stopped</div>
+  <div id="sidebar">
+    <div class="readout-group">
+      <div class="readout-label">Quaternion</div>
+      <div class="readout-row"><span class="axis">w</span><span class="val" id="qw">0.0000</span></div>
+      <div class="readout-row"><span class="axis">x</span><span class="val" id="qx">0.0000</span></div>
+      <div class="readout-row"><span class="axis">y</span><span class="val" id="qy">0.0000</span></div>
+      <div class="readout-row"><span class="axis">z</span><span class="val" id="qz">0.0000</span></div>
+    </div>
+    <div class="readout-group">
+      <div class="readout-label">Euler (deg)</div>
+      <div class="readout-row"><span class="axis">roll</span><span class="val" id="eRoll">0.0</span></div>
+      <div class="readout-row"><span class="axis">pitch</span><span class="val" id="ePitch">0.0</span></div>
+      <div class="readout-row"><span class="axis">yaw</span><span class="val" id="eYaw">0.0</span></div>
+    </div>
+    <div class="readout-group">
+      <div class="readout-label">Linear accel (g)</div>
+      <div class="readout-row"><span class="axis">x</span><span class="val" id="aX">0.000</span></div>
+      <div class="readout-row"><span class="axis">y</span><span class="val" id="aY">0.000</span></div>
+      <div class="readout-row"><span class="axis">z</span><span class="val" id="aZ">0.000</span></div>
+      <div class="readout-row"><span class="axis">|a|</span><span class="val" id="aMag">0.000</span></div>
+    </div>
+    <div class="readout-group">
+      <div class="readout-label">Gyro (deg/s)</div>
+      <div class="readout-row"><span class="axis">x</span><span class="val" id="gX">0.000</span></div>
+      <div class="readout-row"><span class="axis">y</span><span class="val" id="gY">0.000</span></div>
+      <div class="readout-row"><span class="axis">z</span><span class="val" id="gZ">0.000</span></div>
+    </div>
+    <div class="readout-group">
+      <div class="readout-label">Position, est. (drifts, re-centers)</div>
+      <div class="readout-row"><span class="axis">x</span><span class="val" id="pX">0.000</span></div>
+      <div class="readout-row"><span class="axis">y</span><span class="val" id="pY">0.000</span></div>
+      <div class="readout-row"><span class="axis">z</span><span class="val" id="pZ">0.000</span></div>
+    </div>
+    <div class="readout-group tremor-only">
+      <div class="readout-label">Tremor detection (gyro + accel)</div>
+      <div class="readout-row"><span class="axis">state</span><span class="val" id="tremorState">calibrating…</span></div>
+      <div class="readout-row"><span class="axis">channel</span><span class="val" id="tremorChannel">--</span></div>
+      <div class="readout-row"><span class="axis">freq</span><span class="val" id="tremorFreq">--</span></div>
+      <div class="readout-row"><span class="axis">band rms</span><span class="val" id="tremorRms">--</span></div>
+      <div class="readout-row"><span class="axis">threshold</span><span class="val" id="tremorThreshold">--</span></div>
+    </div>
+    <div class="readout-group">
+      <div class="readout-label">Link</div>
+      <div class="readout-row"><span class="axis">packets/s</span><span class="val" id="pktRate">0</span></div>
+      <div class="readout-row"><span class="axis">state</span><span class="val" id="linkState">idle</span></div>
+    </div>
   </div>
 
-  <div id="chart-wrap">
-    <canvas id="chart"></canvas>
+  <div id="viewport">
+    <div id="canvas-holder"></div>
+    <div class="empty-hint" id="emptyHint">
+      no device connected<br>
+      click "connect device" and select TremorGlove<br>
+      requires Chrome or Edge, desktop or Android
+    </div>
+    <div class="error-banner" id="errorBanner"></div>
   </div>
 
-  <div id="stats">
-    <div class="stat">Gyro mag: <span id="s-gyro">—</span> rad/s</div>
-    <div class="stat">RMS: <span id="s-rms">—</span> rad/s</div>
-    <div class="stat">State: <span id="s-state">—</span></div>
-    <div class="stat">Drive CH0: <span id="s-drive">—</span></div>
-    <div class="stat">Packets: <span id="s-count">0</span></div>
+  <div id="scope">
+    <div class="scope-col">
+      <div class="scope-label">Roll axis · rolling trace</div>
+      <canvas id="scope-canvas-roll"></canvas>
+    </div>
+    <div class="scope-col">
+      <div class="scope-label">Accel magnitude (g) · rolling trace</div>
+      <canvas id="scope-canvas-accel"></canvas>
+    </div>
+    <div class="scope-col tremor-only">
+      <div class="scope-label">Tremor energy (× threshold) · rolling trace</div>
+      <canvas id="scope-canvas-tremor"></canvas>
+    </div>
   </div>
+</div>
 
-  <script type="module" src="app.js"></script>
+<script type="module" src="js/main.js"></script>
 </body>
 </html>
