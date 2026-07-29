@@ -1,7 +1,7 @@
 // ============================================================
 // IMU Telemetry visualizer — ESP32 + MPU6050 (DMP) prototype
 // Reads a 28-byte BLE packet (quaternion + linear accel) from
-// esp32-mpu6050-prototype/firmware/esp32_mpu6050_ble_gpio1314.ino
+// esp32-mpu6050-prototype/firmware/esp32_mpu6050_ble_gpio2423.ino
 // and renders live orientation, acceleration, dead-reckoned
 // position, and an optional tremor-detection overlay.
 //
@@ -54,7 +54,7 @@ let lastPacketTime = null;
 // ============================================================
 function handleNotification(event) {
   const dv = event.target.value;
-  if (dv.byteLength < 28) return; // expects 7 little-endian float32s
+  if (dv.byteLength < 40) return; // expects 10 little-endian float32s
 
   const w = dv.getFloat32(0, true);
   const x = dv.getFloat32(4, true);
@@ -63,6 +63,9 @@ function handleNotification(event) {
   const rawAx = dv.getFloat32(16, true);
   const rawAy = dv.getFloat32(20, true);
   const rawAz = dv.getFloat32(24, true);
+  const gx = dv.getFloat32(28, true);
+  const gy = dv.getFloat32(32, true);
+  const gz = dv.getFloat32(36, true);
   const { x: ax, y: ay, z: az } = lowPassAccel(rawAx, rawAy, rawAz);
 
   packetCount++;
@@ -91,6 +94,10 @@ function handleNotification(event) {
   document.getElementById('aZ').textContent = az.toFixed(3);
   document.getElementById('aMag').textContent = accelMag.toFixed(3);
 
+  document.getElementById('gX').textContent = gx.toFixed(3);
+  document.getElementById('gY').textContent = gy.toFixed(3);
+  document.getElementById('gZ').textContent = gz.toFixed(3);
+
   // Point the arrow along the acceleration vector (body frame - the
   // boardGroup parent rotation composes it into world space automatically).
   if (accelMag > 1e-4) {
@@ -115,7 +122,10 @@ function handleNotification(event) {
   document.getElementById('pY').textContent = position.y.toFixed(3);
   document.getElementById('pZ').textContent = position.z.toFixed(3);
 
-  if (isTremorDetectionEnabled()) runTremorDetection(ax, ay, az, now, dt);
+  // Raw (unfiltered) accel, not the display-smoothed ax/ay/az below - the
+  // display lowpass would attenuate the very 3-12Hz band tremor detection
+  // is trying to resolve.
+  if (isTremorDetectionEnabled()) runTremorDetection(gx, gy, gz, rawAx, rawAy, rawAz, now);
 }
 
 async function connect() {

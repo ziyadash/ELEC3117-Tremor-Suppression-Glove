@@ -1,15 +1,21 @@
 /*
-  ESP32 + MPU6050 (DMP) -> BLE quaternion + linear acceleration telemetry
+  ESP32 + MPU6050 (DMP) -> BLE quaternion + linear accel + gyro telemetry
   ------------------------------------------------------------------------
-  Reads fused orientation (quaternion) and gravity-compensated linear
-  acceleration from the MPU6050's onboard DMP and streams both over BLE
-  as 7 little-endian floats (w, x, y, z, ax, ay, az), 28 bytes per
-  notification. ax/ay/az are in g, expressed in the sensor's body frame.
+  Reads fused orientation (quaternion), gravity-compensated linear
+  acceleration, and raw angular velocity (gyro) from the MPU6050's onboard
+  DMP and streams all three over BLE as 10 little-endian floats
+  (w, x, y, z, ax, ay, az, gx, gy, gz), 40 bytes per notification.
+  ax/ay/az are in g, gx/gy/gz are in deg/s, all in the sensor's body frame.
 
-  WIRING (this version): SDA = GPIO13, SCL = GPIO14
-  Note: GPIO13/14 are shared with the native USB Serial/JTAG port (USB_D-/D+).
-  If you need that native "USB" port free, flash/monitor via the "UART" port
-  instead (the one behind the CP2102N chip) to avoid any pin contention.
+  The gyro channel exists because tremor detection (see the web app) uses
+  angular velocity as its primary signal, not accel - the gyro is immune
+  to the gravity-vector contamination that shows up in accel whenever the
+  wrist/arm changes orientation during natural motion.
+
+  WIRING (this version): SDA = GPIO24, SCL = GPIO23
+  Same I2C bus as the mux bring-up (bringup/i2c_scanner,
+  bringup/mux_channel_scanner) and the main tremor_glove firmware -
+  confirmed working against real hardware.
 
   REQUIRED LIBRARIES (Arduino Library Manager):
     - "I2Cdevlib-MPU6050" by Jeff Rowberg (search "MPU6050" in Library Manager,
@@ -55,12 +61,32 @@ uint8_t fifoBuffer[64];
 Quaternion q;
 VectorInt16 aa;       // raw accel, sensor frame
 VectorInt16 aaReal;   // gravity-compensated linear accel, sensor frame
+VectorInt16 gy;       // raw gyro, sensor frame
 VectorFloat gravity;  // gravity vector, derived from the quaternion
+
+// Paced BLE notify rate. The DMP fills its FIFO at ~100Hz regardless (see
+// dmpInitialize()'s 200Hz sample rate / FIFO divisor of 2); notifying at a
+// deliberate, steady 50Hz instead of "as fast as possible" turned out to
+// matter in practice: an unthrottled loop only achieved a jittery ~62Hz in
+// real BLE conditions (radio/stack overhead, not a clean multiple of
+// anything), and that jitter was enough to keep re-triggering the web
+// app's sample-rate auto-redesign, which wiped and restarted tremor
+// detection's calibration before it could ever finish. 50Hz gives a 25Hz
+// Nyquist margin against the detector's 12Hz upper cutoff - comfortably
+// enough - while being a rate the loop can actually hold steady.
+const uint32_t SAMPLE_PERIOD_MS = 20;
+uint32_t nextSampleDue = 0;
 
 // DMP-space accel is scaled to a fixed ~8192 LSB/g regardless of the
 // MPU6050's AFS_SEL setting (an i2cdevlib/DMP firmware quirk) - divide by
 // this to convert dmpGetLinearAccel()'s output into g.
 const float DMP_ACCEL_LSB_PER_G = 8192.0f;
+
+// dmpInitialize() hardcodes the gyro full-scale range to +-2000dps
+// (see MPU6050_6Axis_MotionApps20::dmpInitialize(), which calls
+// setFullScaleGyroRange(MPU6050_GYRO_FS_2000)), giving a fixed sensitivity
+// of 16.4 LSB per deg/s - divide dmpGetGyro()'s raw output by this.
+const float DMP_GYRO_LSB_PER_DPS = 16.4f;
 
 // ---------------- CALIBRATION OFFSETS ----------------
 // Replace these with YOUR board's values from the calibration sketch.
@@ -90,7 +116,7 @@ void setup() {
   while (!Serial) {}
 
   // ---- I2C + MPU6050 init ----
-  Wire.begin(13, 14);  // SDA = GPIO13, SCL = GPIO14
+  Wire.begin(24, 23);  // SDA = GPIO24, SCL = GPIO23
   Wire.setClock(400000);
 
   Serial.println("Initializing MPU6050...");
@@ -155,25 +181,47 @@ void loop() {
       return;
     }
 
+    // Always drain and decode the latest FIFO packet - this is what keeps
+    // the FIFO from backing up - but only notify over BLE at the paced
+    // SAMPLE_PERIOD_MS cadence below, so the rate the web app actually
+    // sees stays steady regardless of the DMP's native output rate.
     mpu.getFIFOBytes(fifoBuffer, packetSize);
     mpu.dmpGetQuaternion(&q, fifoBuffer);
     mpu.dmpGetAccel(&aa, fifoBuffer);
     mpu.dmpGetGravity(&gravity, &q);
     mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
+    mpu.dmpGetGyro(&gy, fifoBuffer);
+
+    uint32_t now = millis();
+    if (now < nextSampleDue) return;
+    nextSampleDue = now + SAMPLE_PERIOD_MS;
+
+    // DEBUG: dump decoded DMP output straight to Serial, independent of
+    // BLE - isolates "is the DMP producing real data" from "is BLE/the
+    // web app showing it correctly". Remove once data looks sane.
+    Serial.printf("q(%.3f,%.3f,%.3f,%.3f) a(%.3f,%.3f,%.3f)g g(%.3f,%.3f,%.3f)dps\n",
+                  q.w, q.x, q.y, q.z,
+                  aaReal.x / DMP_ACCEL_LSB_PER_G,
+                  aaReal.y / DMP_ACCEL_LSB_PER_G,
+                  aaReal.z / DMP_ACCEL_LSB_PER_G,
+                  gy.x / DMP_GYRO_LSB_PER_DPS,
+                  gy.y / DMP_GYRO_LSB_PER_DPS,
+                  gy.z / DMP_GYRO_LSB_PER_DPS);
 
     if (deviceConnected) {
-      // Pack w, x, y, z, ax, ay, az as 7 little-endian 32-bit floats = 28 bytes
-      float payload[7] = {
+      // Pack w, x, y, z, ax, ay, az, gx, gy, gz as 10 little-endian
+      // 32-bit floats = 40 bytes
+      float payload[10] = {
         (float)q.w, (float)q.x, (float)q.y, (float)q.z,
         aaReal.x / DMP_ACCEL_LSB_PER_G,
         aaReal.y / DMP_ACCEL_LSB_PER_G,
-        aaReal.z / DMP_ACCEL_LSB_PER_G
+        aaReal.z / DMP_ACCEL_LSB_PER_G,
+        gy.x / DMP_GYRO_LSB_PER_DPS,
+        gy.y / DMP_GYRO_LSB_PER_DPS,
+        gy.z / DMP_GYRO_LSB_PER_DPS
       };
       pCharacteristic->setValue((uint8_t*)payload, sizeof(payload));
       pCharacteristic->notify();
     }
-
-    // Roughly 50 Hz update rate - fast enough to see tremor-frequency motion smoothly
-    delay(20);
   }
 }

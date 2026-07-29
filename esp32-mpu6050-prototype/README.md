@@ -10,10 +10,11 @@ vs. gyro-only). It exists purely to validate the sensor-fusion -> BLE ->
 
 ## Firmware
 
-`firmware/esp32_mpu6050_ble_gpio1314.ino` — reads fused orientation
-(quaternion) and gravity-compensated linear acceleration from the MPU6050's
-onboard DMP, and streams both over BLE as 7 little-endian floats
-(w, x, y, z, ax, ay, az), 28 bytes per notification, ~50Hz.
+`firmware/esp32_mpu6050_ble_gpio2423.ino` — reads fused orientation
+(quaternion), gravity-compensated linear acceleration, and raw angular
+velocity (gyro) from the MPU6050's onboard DMP, and streams all three over
+BLE as 10 little-endian floats (w, x, y, z, ax, ay, az, gx, gy, gz),
+40 bytes per notification, ~50Hz.
 
 Requires the Arduino IDE with the ESP32 board package, plus the
 `I2Cdevlib-MPU6050` library (Library Manager). See the wiring/calibration
