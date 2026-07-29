@@ -5,6 +5,7 @@
 <title>IMU Telemetry — Live Orientation</title>
 <link rel="stylesheet" href="style.css" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
 </head>
 <body>
 
@@ -42,16 +43,24 @@
       <div class="readout-row"><span class="axis">|a|</span><span class="val" id="aMag">0.000</span></div>
     </div>
     <div class="readout-group">
+      <div class="readout-label">Gyro (deg/s)</div>
+      <div class="readout-row"><span class="axis">x</span><span class="val" id="gX">0.000</span></div>
+      <div class="readout-row"><span class="axis">y</span><span class="val" id="gY">0.000</span></div>
+      <div class="readout-row"><span class="axis">z</span><span class="val" id="gZ">0.000</span></div>
+    </div>
+    <div class="readout-group">
       <div class="readout-label">Position, est. (drifts, re-centers)</div>
       <div class="readout-row"><span class="axis">x</span><span class="val" id="pX">0.000</span></div>
       <div class="readout-row"><span class="axis">y</span><span class="val" id="pY">0.000</span></div>
       <div class="readout-row"><span class="axis">z</span><span class="val" id="pZ">0.000</span></div>
     </div>
     <div class="readout-group tremor-only">
-      <div class="readout-label">Tremor detection</div>
-      <div class="readout-row"><span class="axis">state</span><span class="val" id="tremorState">idle</span></div>
+      <div class="readout-label">Tremor detection (gyro + accel)</div>
+      <div class="readout-row"><span class="axis">state</span><span class="val" id="tremorState">calibrating…</span></div>
+      <div class="readout-row"><span class="axis">channel</span><span class="val" id="tremorChannel">--</span></div>
       <div class="readout-row"><span class="axis">freq</span><span class="val" id="tremorFreq">--</span></div>
-      <div class="readout-row"><span class="axis">band rms (g)</span><span class="val" id="tremorRms">0.000</span></div>
+      <div class="readout-row"><span class="axis">band rms</span><span class="val" id="tremorRms">--</span></div>
+      <div class="readout-row"><span class="axis">threshold</span><span class="val" id="tremorThreshold">--</span></div>
     </div>
     <div class="readout-group">
       <div class="readout-label">Link</div>
@@ -80,7 +89,7 @@
       <canvas id="scope-canvas-accel"></canvas>
     </div>
     <div class="scope-col tremor-only">
-      <div class="scope-label">Tremor-band RMS (g) · rolling trace</div>
+      <div class="scope-label">Tremor energy (× threshold) · rolling trace</div>
       <canvas id="scope-canvas-tremor"></canvas>
     </div>
   </div>

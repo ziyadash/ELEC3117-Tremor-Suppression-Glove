@@ -5,11 +5,10 @@ const holder = document.getElementById('canvas-holder');
 const scene = new THREE.Scene();
 
 // Orthographic, not perspective: under perspective, a long/thin rotating
-// object (the board, 1.6 x 0.12 x 1.0) can get near/far-end size ratios
-// over 1.5x when its long axis points toward the camera, which reads as
-// the box tapering to a wedge - easy to mistake for clipping. Orthographic
-// projection has no such distance-based scaling, so the box's true shape
-// stays legible from every orientation.
+// object can get near/far-end size ratios over 1.5x when its long axis
+// points toward the camera, which reads as tapering to a wedge - easy to
+// mistake for clipping. Orthographic projection has no such distance-based
+// scaling, so the hand's true shape stays legible from every orientation.
 const ORTHO_VIEW_HALF_HEIGHT = 3;
 const camera = new THREE.OrthographicCamera(
   -ORTHO_VIEW_HALF_HEIGHT, ORTHO_VIEW_HALF_HEIGHT,
@@ -35,37 +34,47 @@ function resizeRenderer() {
 window.addEventListener('resize', resizeRenderer);
 resizeRenderer();
 
-// Subtle grid floor for spatial reference. Offset well below the board's
-// max rotated extent (~0.945 at the corners) plus the position dead-band
-// below, so a tumbling/drifting board never pokes through the floor plane.
+// Subtle grid floor for spatial reference. Offset well below the hand's
+// max rotated extent (fingertip-to-pivot, scaled, ~1.45) plus the position
+// dead-reckoning clamp (1.0) below, so a tumbling/drifting hand never
+// pokes through the floor plane in the worst case.
 const grid = new THREE.GridHelper(6, 24, 0xc7ccd1, 0xe6e9ec);
-grid.position.y = -2.2;
+grid.position.y = -2.6;
 scene.add(grid);
 
-// Board-like proxy object: a flattened box with an axis indicator strip,
-// standing in for the MPU6050 breakout board itself.
+// Hand proxy object, standing in for the glove. Loaded async from an OBJ
+// file (Poly Pizza "Low Poly Right Hand" by Raziq Brown, CC BY 3.0 - see
+// note.md), since there's no primitive-built fallback. The tremor tint
+// (stripMat) is applied directly to the hand mesh itself, so the whole
+// hand glows pink while tremor detection is ACTIVE.
 export const boardGroup = new THREE.Group();
 
-const boardGeo = new THREE.BoxGeometry(1.6, 0.12, 1.0);
-const boardMat = new THREE.MeshStandardMaterial({ color: 0x3e4c59, metalness: 0.3, roughness: 0.55 });
-const board = new THREE.Mesh(boardGeo, boardMat);
-boardGroup.add(board);
+export const stripMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, emissive: 0x1e3a6b, metalness: 0.25, roughness: 0.5 });
 
 // Body-frame axes gizmo (x=red, y=green, z=blue), sized to poke out past
-// the board's edges so it stays visible from any orientation.
+// the hand so it stays visible from any orientation.
 const bodyAxes = new THREE.AxesHelper(1.0);
 boardGroup.add(bodyAxes);
 
-// Let the strip protrude past the board's front edge (board's z extends to
-// 0.5) rather than sit flush with it or stop short of it: flush caused the
-// two faces to sit exactly coplanar (a z-fighting flicker), and stopping
-// short exposed a thin sliver of bare board at the seam. Poking out past
-// the edge covers the seam completely with no coincident face.
-const stripGeo = new THREE.BoxGeometry(1.6, 0.13, 0.16);
-export const stripMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, emissive: 0x1e3a6b, metalness: 0.2, roughness: 0.4 });
-const strip = new THREE.Mesh(stripGeo, stripMat);
-strip.position.z = 0.46;
-boardGroup.add(strip);
+// The source mesh is a fragment cut from a full-body rig: it sits at an
+// arbitrary world offset rather than being centered/oriented for standalone
+// use. Recenter it on its wrist end (bounding-box max-Y - the model was
+// exported hanging at the character's side, wrist up/fingers down) and
+// rescale so it reads at roughly the same on-screen size the old board
+// proxy did.
+const HAND_SCALE = 3.5;
+new THREE.OBJLoader().load('assets/models/RightHand.obj', (obj) => {
+  const mesh = obj.children[0];
+  mesh.geometry.computeBoundingBox();
+  const bbox = mesh.geometry.boundingBox;
+  const centerX = (bbox.min.x + bbox.max.x) / 2;
+  const centerZ = (bbox.min.z + bbox.max.z) / 2;
+  mesh.geometry.translate(-centerX, -bbox.max.y, -centerZ);
+  mesh.geometry.scale(HAND_SCALE, HAND_SCALE, HAND_SCALE);
+  mesh.geometry.computeVertexNormals();
+  mesh.material = stripMat;
+  boardGroup.add(mesh);
+});
 
 // Accel vector arrow: a child of boardGroup because the DMP's linear-accel
 // output is expressed in the sensor's body frame - parenting it here lets
