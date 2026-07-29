@@ -1,8 +1,7 @@
 {
-    // See http://go.microsoft.com/fwlink/?LinkId=827846
-    // for the documentation about the extensions.json format
     "recommendations": [
-        "platformio.platformio-ide"
+        "Jason2866.esp-decoder",
+        "vsciot-vscode.vscode-arduino"
     ],
     "unwantedRecommendations": [
         "ms-vscode.cpptools-extension-pack"

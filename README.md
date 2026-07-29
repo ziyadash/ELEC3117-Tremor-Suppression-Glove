@@ -1,117 +1,111 @@
 # Tremor Suppression Glove — ELEC3117
 
 Closed-loop vibrotactile tremor suppression glove for Parkinson's disease.
-STM32F401CCU6 + MPU-6050 + 3× DRV2605L LRA actuators + HM-10 BLE.
+ESP32-C5-DevKitC-1 + MPU-6050 (DMP) + 2× DRV2605L LRA actuators, both the
+IMU and the actuators reached via a TCA9548A I2C mux + native BLE.
+
+Tremor detection (dual-channel gyro+accel, adaptively calibrated, 3-gate)
+runs on-device — the web app is a pure telemetry/status display, nothing
+gets computed client-side.
 
 ---
 
-## Firmware
+## Hardware / wiring
 
-### Prerequisites
-- [PlatformIO](https://platformio.org/) (CLI or VS Code extension)
-- Python 3 + scipy/numpy (for coefficient generation only)
+Confirmed against real hardware via the sketches in `bringup/`
+(`i2c_scanner`, `mux_channel_scanner`):
 
-### 1. Generate filter coefficients (do this first)
+| Signal | Pin |
+|---|---|
+| I2C SDA | GPIO24 |
+| I2C SCL | GPIO23 |
+| TCA9548A mux RST | GPIO27 (held HIGH in software — also the board's onboard addressable RGB LED pin, not currently a conflict) |
 
-```bash
-python3 generate_coeffs.py
-```
-
-Paste the printed `BANDPASS_COEFFS` array into `firmware/src/filters.c`,
-replacing the placeholder zeros.
-
-### 2. Run unit tests (no hardware required)
-
-```bash
-pio test -e native_test
-```
-
-All five test suites (`ring_buffer`, `filters`, `tremor`, `control`, `telemetry`)
-must pass before proceeding to hardware.
-
-### 3. Build and flash (STM32F401 Black Pill)
-
-Connect ST-Link. Then:
-
-```bash
-pio run -e stm32f401 --target upload
-```
-
-To use ERM coin motors instead of DRV2605L (early bring-up):
-
-```bash
-pio run -e stm32f401 --target upload -D HAPTIC_ERM_PLACEHOLDER
-```
-
-### 4. CubeMX peripheral init
-
-`main.c` expects CubeMX-generated init functions (`SystemClock_Config`,
-`MX_I2C1_Init`, `MX_I2C2_Init`, `MX_USART1_UART_Init`). Generate these
-from the `.ioc` file in CubeIDE and place them in `firmware/src/`.
+Single shared I2C bus: TCA9548A mux (`0x70`) is the only thing directly
+reachable. The MPU6050 (`0x68`) sits behind mux **channel 1**, and both
+DRV2605L drivers (`0x5A`) sit behind mux **channels 2 and 3** — every
+transaction to any of them selects its channel first (see `mux.ino`).
 
 ---
 
-## Web App
+## Firmware — `tremor_glove/`
+
+Plain Arduino sketch, no PlatformIO. Open `tremor_glove/tremor_glove.ino`
+in the Arduino IDE or VS Code's Arduino extension, select board
+**ESP32C5 Dev Module**, pick your serial port, verify/upload.
+
+```
+tremor_glove/
+  tremor_glove.ino     — setup()/loop(): DMP read -> tremor_update -> haptic drive -> BLE notify, paced 50Hz
+  mux.h / mux.ino       — shared TCA9548A channel select/deselect, used by both imu.ino and haptic.ino
+  imu.h / imu.ino       — MPU6050 DMP init + per-sample read, behind mux channel 1
+  tremor_detect.h/.ino  — dual-channel (gyro+accel) tremor detector, ported from the old client-side JS
+  haptic.h / haptic.ino — 2x DRV2605L drive, behind mux channels 2 and 3
+  ble_link.h / ble_link.ino — BLE GATT server, packet pack + notify
+```
+
+**Required library** (Arduino Library Manager): `I2Cdevlib-MPU6050`
+(search "MPU6050"). BLE uses the ESP32 core's bundled library, no extra
+install.
+
+**MPU6050 calibration offsets**: every board's sensor has different
+offsets; `imu.ino` defaults them to 0 (works, but drifts). Run the
+`IMU_Zero`/`MPU6050_calibration` example sketch from i2cdevlib and paste
+your six values into `imu.ino`.
+
+**Tremor baseline calibration** happens automatically at boot — the glove
+needs to be held still for ~2.6s after power-on while the detector
+establishes its resting-noise threshold.
+
+### BLE packet (55 bytes, little-endian)
+
+| Offset | Size | Field |
+|---|---|---|
+| 0–39 | 40 | 10 floats: qw,qx,qy,qz, ax,ay,az, gx,gy,gz |
+| 40 | 1 | tremor_active (uint8) |
+| 41 | 1 | lead_channel (uint8, 0=gyro/1=accel) |
+| 42–45 | 4 | rms (float32) |
+| 46–49 | 4 | threshold (float32) |
+| 50–53 | 4 | freq_hz (float32) |
+| 54 | 1 | drive_intensity (uint8) |
+
+---
+
+## Web app — `webapp/`
 
 No build step — runs directly in the browser as ES modules.
 
-### Open the dashboard
-
 ```bash
-python3 -m http.server 8080 --directory webapp/
+python3 -m http.server 8080 --directory webapp
 ```
 
-Open `http://localhost:8080` in **Chrome or Edge** (required for Web Bluetooth).
+Open `http://localhost:8080` in **Chrome or Edge** (required for Web
+Bluetooth) and click "Connect device" — look for **TremorGlove**.
 
-### Transports
-
-| Mode | How to use |
-|---|---|
-| **Mock** | Select "Mock (synthetic)" → Start. Works immediately, no hardware needed. |
-| **File replay** | Select "File replay" → choose a `.bin` log → Start. |
-| **BLE** | Select "BLE (real device)" → Start → approve the browser Bluetooth dialog. |
-
-> Web Bluetooth requires Chrome/Edge. Does **not** work in Firefox or Safari.
-
-### Download data
-
-Click **Download CSV** at any time to save the session log with wall-clock timestamps.
+Shows live orientation (3D hand), acceleration, dead-reckoned position,
+and tremor status (state/channel/frequency/RMS/threshold) exactly as the
+firmware computed it.
 
 ---
 
-## Repository structure
+## `esp32-mpu6050-prototype/` — standalone reference, kept on the side
 
-```
-firmware/
-  include/          # Public headers (ring_buffer, filters, tremor, control, telemetry)
-  include/hal/      # HAL interface headers (platform-agnostic)
-  src/              # Algorithm implementations (compile on any platform)
-  src/hal/          # Concrete HAL drivers (STM32 target only)
-  src/hal/mock/     # Mock HAL for native unit testing
-  test/             # Unity unit tests (pio test -e native_test)
-webapp/
-  index.html        # Dashboard UI
-  app.js            # Entry point — wires transport → chart → logger
-  parser.js         # Binary packet parser with header re-sync
-  chart_view.js     # Chart.js rolling 10-second graph
-  logger.js         # CSV download
-  transport/        # MockTransport, FileTransport, BleTransport
-generate_coeffs.py  # Biquad coefficient generator (run before building)
-PLAN.md             # Full implementation plan and design decisions
-platformio.ini      # Build environments: stm32f401 and native_test
-```
+An earlier bring-up (same MPU6050 DMP → BLE approach, no tremor detection
+or haptics) with its own copy of the web app. Its `webapp/js/tremor.js`
+still has the **original client-side** JS tremor detector. Its firmware
+(`firmware/esp32_mpu6050_ble_gpio2423/`) talks to the MPU6050 **directly**
+on GPIO24/23, with no mux channel selection — that only works if the IMU
+is wired straight to the main bus. Now that the glove assembly routes the
+IMU through mux channel 1 instead, this prototype needs the IMU
+temporarily rewired off the mux to work standalone; it hasn't been
+updated to select mux channel 1 the way `tremor_glove/imu.ino` does.
 
 ---
 
-## Integration milestones
+## `bringup/` — hardware diagnostic sketches (gitignored)
 
-| Step | Acceptance criterion |
-|---|---|
-| 0 — Native tests | `pio test -e native_test` all pass |
-| 1 — IMU | Stable wrist angle in SWD live watch |
-| 2 — Filter | 5 Hz shake → clear filtered output; slow tilt → near zero |
-| 3 — State machine | LED toggles IDLE/ACTIVE on wrist shake |
-| 4 — Haptic | Motor vibrates; intensity modulates with RTP byte |
-| 5 — PI loop | Drive byte proportional to shake amplitude (oscilloscope) |
-| 6 — BLE | Live tremor graph visible in browser |
-| 7 — Full test | Measurable RMS reduction before/after with glove worn |
+`i2c_scanner` (confirms the TCA9548A mux responds at `0x70`) and
+`mux_channel_scanner` (confirms each mux channel routes to the right
+DRV2605L, and that channels are actually isolated). Not part of the
+tracked firmware — useful the next time something's wired up from
+scratch.
