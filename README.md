@@ -93,12 +93,10 @@ firmware computed it.
 An earlier bring-up (same MPU6050 DMP → BLE approach, no tremor detection
 or haptics) with its own copy of the web app. Its `webapp/js/tremor.js`
 still has the **original client-side** JS tremor detector. Its firmware
-(`firmware/esp32_mpu6050_ble_gpio2423/`) talks to the MPU6050 **directly**
-on GPIO24/23, with no mux channel selection — that only works if the IMU
-is wired straight to the main bus. Now that the glove assembly routes the
-IMU through mux channel 1 instead, this prototype needs the IMU
-temporarily rewired off the mux to work standalone; it hasn't been
-updated to select mux channel 1 the way `tremor_glove/imu.ino` does.
+(`firmware/esp32_mpu6050_ble_gpio2423/`) matches the real wiring: MPU6050
+behind TCA9548A mux channel 1, same as `tremor_glove/imu.ino` (mux
+select/deselect inlined directly in the sketch rather than a shared
+module, since this one's meant to stay a single self-contained file).
 
 ---
 

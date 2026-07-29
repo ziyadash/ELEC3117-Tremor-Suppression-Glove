@@ -15,7 +15,10 @@
   WIRING (this version): SDA = GPIO24, SCL = GPIO23
   Same I2C bus as the mux bring-up (bringup/i2c_scanner,
   bringup/mux_channel_scanner) and the main tremor_glove firmware -
-  confirmed working against real hardware.
+  confirmed working against real hardware. The MPU6050 sits behind the
+  TCA9548A mux's channel 1 (not directly on the bus), same as
+  tremor_glove/imu.ino, so this sketch also drives the mux's RST pin
+  (GPIO27) and selects channel 1 before every MPU6050 transaction.
 
   REQUIRED LIBRARIES (Arduino Library Manager):
     - "I2Cdevlib-MPU6050" by Jeff Rowberg (search "MPU6050" in Library Manager,
@@ -43,6 +46,27 @@
 // Randomly generated - keep these matching in the web app
 #define SERVICE_UUID        "a1b2c3d4-0001-4a5b-8c6d-1234567890ab"
 #define CHARACTERISTIC_UUID  "a1b2c3d4-0002-4a5b-8c6d-1234567890ab"
+
+// ---------------- TCA9548A mux ----------------
+// MPU6050 sits behind channel 1 - select it before every transaction,
+// deselect after. Same protocol as bringup/mux_channel_scanner and
+// tremor_glove/mux.ino, just inlined here since this sketch is meant to
+// stay a single self-contained file.
+#define MUX_ADDR 0x70
+#define MUX_RST_PIN 27
+#define MPU_MUX_CHANNEL 1
+
+bool muxSelect(uint8_t channel) {
+  Wire.beginTransmission(MUX_ADDR);
+  Wire.write((uint8_t)(1 << channel));
+  return Wire.endTransmission() == 0;
+}
+
+void muxDeselect() {
+  Wire.beginTransmission(MUX_ADDR);
+  Wire.write((uint8_t)0x00);
+  Wire.endTransmission();
+}
 
 BLEServer* pServer = nullptr;
 BLECharacteristic* pCharacteristic = nullptr;
@@ -115,9 +139,14 @@ void setup() {
   Serial.begin(115200);
   while (!Serial) {}
 
-  // ---- I2C + MPU6050 init ----
+  // ---- I2C + mux + MPU6050 init ----
+  pinMode(MUX_RST_PIN, OUTPUT);
+  digitalWrite(MUX_RST_PIN, HIGH);  // hold TCA9548A out of reset
+
   Wire.begin(24, 23);  // SDA = GPIO24, SCL = GPIO23
   Wire.setClock(400000);
+
+  muxSelect(MPU_MUX_CHANNEL);
 
   Serial.println("Initializing MPU6050...");
   mpu.initialize();
@@ -144,6 +173,8 @@ void setup() {
     Serial.print("DMP init failed, code: ");
     Serial.println(devStatus);
   }
+
+  muxDeselect();
 
   // ---- BLE init ----
   BLEDevice::init("TremorGlove-IMU");
@@ -172,56 +203,63 @@ void setup() {
 void loop() {
   if (!dmpReady) return;
 
+  muxSelect(MPU_MUX_CHANNEL);
   fifoCount = mpu.getFIFOCount();
 
-  if (fifoCount >= packetSize) {
-    // If FIFO overflowed, reset it and skip this cycle
-    if (fifoCount >= 1024) {
-      mpu.resetFIFO();
-      return;
-    }
+  if (fifoCount < packetSize) {
+    muxDeselect();
+    return;
+  }
 
-    // Always drain and decode the latest FIFO packet - this is what keeps
-    // the FIFO from backing up - but only notify over BLE at the paced
-    // SAMPLE_PERIOD_MS cadence below, so the rate the web app actually
-    // sees stays steady regardless of the DMP's native output rate.
-    mpu.getFIFOBytes(fifoBuffer, packetSize);
-    mpu.dmpGetQuaternion(&q, fifoBuffer);
-    mpu.dmpGetAccel(&aa, fifoBuffer);
-    mpu.dmpGetGravity(&gravity, &q);
-    mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
-    mpu.dmpGetGyro(&gy, fifoBuffer);
+  // If FIFO overflowed, reset it and skip this cycle
+  if (fifoCount >= 1024) {
+    mpu.resetFIFO();
+    muxDeselect();
+    return;
+  }
 
-    uint32_t now = millis();
-    if (now < nextSampleDue) return;
-    nextSampleDue = now + SAMPLE_PERIOD_MS;
+  // Always drain and decode the latest FIFO packet - this is what keeps
+  // the FIFO from backing up - but only notify over BLE at the paced
+  // SAMPLE_PERIOD_MS cadence below, so the rate the web app actually
+  // sees stays steady regardless of the DMP's native output rate.
+  mpu.getFIFOBytes(fifoBuffer, packetSize);
+  muxDeselect();  // done with the bus - dmpGet* below only parses fifoBuffer, no I2C
 
-    // DEBUG: dump decoded DMP output straight to Serial, independent of
-    // BLE - isolates "is the DMP producing real data" from "is BLE/the
-    // web app showing it correctly". Remove once data looks sane.
-    Serial.printf("q(%.3f,%.3f,%.3f,%.3f) a(%.3f,%.3f,%.3f)g g(%.3f,%.3f,%.3f)dps\n",
-                  q.w, q.x, q.y, q.z,
-                  aaReal.x / DMP_ACCEL_LSB_PER_G,
-                  aaReal.y / DMP_ACCEL_LSB_PER_G,
-                  aaReal.z / DMP_ACCEL_LSB_PER_G,
-                  gy.x / DMP_GYRO_LSB_PER_DPS,
-                  gy.y / DMP_GYRO_LSB_PER_DPS,
-                  gy.z / DMP_GYRO_LSB_PER_DPS);
+  mpu.dmpGetQuaternion(&q, fifoBuffer);
+  mpu.dmpGetAccel(&aa, fifoBuffer);
+  mpu.dmpGetGravity(&gravity, &q);
+  mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
+  mpu.dmpGetGyro(&gy, fifoBuffer);
 
-    if (deviceConnected) {
-      // Pack w, x, y, z, ax, ay, az, gx, gy, gz as 10 little-endian
-      // 32-bit floats = 40 bytes
-      float payload[10] = {
-        (float)q.w, (float)q.x, (float)q.y, (float)q.z,
-        aaReal.x / DMP_ACCEL_LSB_PER_G,
-        aaReal.y / DMP_ACCEL_LSB_PER_G,
-        aaReal.z / DMP_ACCEL_LSB_PER_G,
-        gy.x / DMP_GYRO_LSB_PER_DPS,
-        gy.y / DMP_GYRO_LSB_PER_DPS,
-        gy.z / DMP_GYRO_LSB_PER_DPS
-      };
-      pCharacteristic->setValue((uint8_t*)payload, sizeof(payload));
-      pCharacteristic->notify();
-    }
+  uint32_t now = millis();
+  if (now < nextSampleDue) return;
+  nextSampleDue = now + SAMPLE_PERIOD_MS;
+
+  // DEBUG: dump decoded DMP output straight to Serial, independent of
+  // BLE - isolates "is the DMP producing real data" from "is BLE/the
+  // web app showing it correctly". Remove once data looks sane.
+  Serial.printf("q(%.3f,%.3f,%.3f,%.3f) a(%.3f,%.3f,%.3f)g g(%.3f,%.3f,%.3f)dps\n",
+                q.w, q.x, q.y, q.z,
+                aaReal.x / DMP_ACCEL_LSB_PER_G,
+                aaReal.y / DMP_ACCEL_LSB_PER_G,
+                aaReal.z / DMP_ACCEL_LSB_PER_G,
+                gy.x / DMP_GYRO_LSB_PER_DPS,
+                gy.y / DMP_GYRO_LSB_PER_DPS,
+                gy.z / DMP_GYRO_LSB_PER_DPS);
+
+  if (deviceConnected) {
+    // Pack w, x, y, z, ax, ay, az, gx, gy, gz as 10 little-endian
+    // 32-bit floats = 40 bytes
+    float payload[10] = {
+      (float)q.w, (float)q.x, (float)q.y, (float)q.z,
+      aaReal.x / DMP_ACCEL_LSB_PER_G,
+      aaReal.y / DMP_ACCEL_LSB_PER_G,
+      aaReal.z / DMP_ACCEL_LSB_PER_G,
+      gy.x / DMP_GYRO_LSB_PER_DPS,
+      gy.y / DMP_GYRO_LSB_PER_DPS,
+      gy.z / DMP_GYRO_LSB_PER_DPS
+    };
+    pCharacteristic->setValue((uint8_t*)payload, sizeof(payload));
+    pCharacteristic->notify();
   }
 }
