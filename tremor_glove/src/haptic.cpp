@@ -1,5 +1,5 @@
-#include "haptic.h"
-#include "mux.h"
+#include "../include/haptic.h"
+#include "../include/mux.h"
 #include <Wire.h>
 
 #define DRV2605L_ADDR 0x5A

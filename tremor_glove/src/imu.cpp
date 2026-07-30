@@ -1,5 +1,5 @@
-#include "imu.h"
-#include "mux.h"
+#include "../include/imu.h"
+#include "../include/mux.h"
 #include "I2Cdev.h"
 #include "MPU6050_6Axis_MotionApps20.h"
 #include "Wire.h"

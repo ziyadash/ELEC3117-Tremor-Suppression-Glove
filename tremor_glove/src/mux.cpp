@@ -1,4 +1,4 @@
-#include "mux.h"
+#include "../include/mux.h"
 #include <Wire.h>
 
 bool mux_select(uint8_t channel) {

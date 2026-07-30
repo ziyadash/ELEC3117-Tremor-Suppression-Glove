@@ -2,7 +2,7 @@
    ------------------------------------------------------------------------
    MPU6050 (DMP) -> on-device dual-channel (gyro+accel) tremor detection,
    ported from esp32-mpu6050-prototype/webapp/js/tremor.js (see
-   tremor_detect.ino) -> 2x DRV2605L haptic drive -> BLE notify (raw
+   src/tremor_detect.cpp) -> 2x DRV2605L haptic drive -> BLE notify (raw
    telemetry + tremor status), paced 50Hz.
 
    Wiring (confirmed via bringup/i2c_scanner + bringup/mux_channel_scanner,
@@ -11,11 +11,11 @@
        - TCA9548A mux @ 0x70, RST=GPIO27 (held HIGH in software - also the
          board's onboard addressable RGB LED pin, not currently a conflict
          since nothing else here drives GPIO27)
-       - MPU6050 @ 0x68 behind mux channel 1 (see mux.ino - every IMU
+       - MPU6050 @ 0x68 behind mux channel 1 (see src/mux.cpp - every IMU
          transaction selects this channel first, same as the haptic drivers)
        - 2x DRV2605L @ 0x5A behind mux channels 2, 3
 
-   BLE packet (55 bytes, little-endian, see ble_link.ino):
+   BLE packet (55 bytes, little-endian, see src/ble_link.cpp):
      [0-39]  10 floats: qw,qx,qy,qz, ax,ay,az, gx,gy,gz  (unchanged from
              esp32-mpu6050-prototype's format)
      [40]    tremor_active (uint8)
@@ -28,19 +28,40 @@
    REQUIRED LIBRARIES (Arduino Library Manager): "I2Cdevlib-MPU6050"
    (search "MPU6050"). BLE is the ESP32 core's bundled library, no extra
    install. See esp32-mpu6050-prototype/README.md for background on the
-   DMP calibration offsets in imu.ino.
+   DMP calibration offsets in src/imu.cpp.
+
+   Structure: this file is the only .ino (Arduino requires the main
+   sketch file in the sketch root); everything else is headers in
+   include/ and implementations in src/ - a plain Arduino sketch has no
+   built-in way to search a separate include/ directory, so src/*.cpp
+   reach their own headers via "../include/foo.h" rather than relying on
+   any implicit search path.
 */
 #include <Arduino.h>
-#include "imu.h"
-#include "tremor_detect.h"
-#include "haptic.h"
-#include "ble_link.h"
+#include "include/imu.h"
+#include "include/tremor_detect.h"
+#include "include/haptic.h"
+#include "include/ble_link.h"
 
 #define MUX_RST_PIN 27
 #define SAMPLE_PERIOD_MS 20  /* 50 Hz - matches tremor_detect.ino's FS_HZ assumption */
 
 static uint8_t s_hapticChannelOk = 0;
 static uint32_t s_nextSampleDue = 0;
+
+/* Linear drive scaled by how far the leading channel's RMS sits above its
+   threshold once active; 0 otherwise. No PI controller, no per-channel
+   weighting - see tremor_glove's plan notes if you want to add
+   differentiated intensity by motor placement later. */
+static uint8_t compute_drive(const TremorResult &tr) {
+  if (!tr.active || tr.threshold <= 0.0f) return 0;
+
+  float ratio = tr.rms / tr.threshold;
+  float scaled = (ratio - 1.0f) * 64.0f;
+  if (scaled < 0.0f) scaled = 0.0f;
+  if (scaled > 127.0f) scaled = 127.0f;
+  return (uint8_t)scaled;
+}
 
 void setup() {
   Serial.begin(115200);
@@ -74,18 +95,7 @@ void loop() {
   TremorResult tr = tremor_detect_update(imu.gx, imu.gy, imu.gz,
                                           imu.ax, imu.ay, imu.az, now);
 
-  /* Linear drive scaled by how far the leading channel's RMS sits above
-     its threshold once active; 0 otherwise. No PI controller, no
-     per-channel weighting - see tremor_glove's plan notes if you want to
-     add differentiated intensity by motor placement later. */
-  uint8_t drive = 0;
-  if (tr.active && tr.threshold > 0.0f) {
-    float ratio = tr.rms / tr.threshold;
-    float scaled = (ratio - 1.0f) * 64.0f;
-    if (scaled < 0.0f) scaled = 0.0f;
-    if (scaled > 127.0f) scaled = 127.0f;
-    drive = (uint8_t)scaled;
-  }
+  uint8_t drive = compute_drive(tr);
   haptic_set_drive(s_hapticChannelOk, drive);
 
   ble_link_send(imu.qw, imu.qx, imu.qy, imu.qz,

@@ -27,7 +27,7 @@
 
    The internal types (Biquad, TremorBandpass, SlidingStats, TremorChannel,
    ChannelResult) live in tremor_detect.h, not here - see that file for why. */
-#include "tremor_detect.h"
+#include "../include/tremor_detect.h"
 #include <math.h>
 #include <string.h>
 
