@@ -8,7 +8,7 @@
 extern const uint8_t HAPTIC_MUX_CHANNELS[HAPTIC_CHANNELS];
 
 /* Initialises both DRV2605L drivers through the TCA9548A mux (RTP mode,
-   LRA feedback, zero drive). Returns a bitmask (bit N corresponds to
+   ERM feedback, zero drive). Returns a bitmask (bit N corresponds to
    HAPTIC_MUX_CHANNELS[N]) of channels that initialised successfully;
    failed channels are silently skipped by haptic_set_drive() for the
    rest of the session rather than retried mid-loop. */

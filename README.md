@@ -1,7 +1,7 @@
 # Tremor Suppression Glove — ELEC3117
 
 Closed-loop vibrotactile tremor suppression glove for Parkinson's disease.
-ESP32-C5-DevKitC-1 + MPU-6050 (DMP) + 2× DRV2605L LRA actuators, both the
+ESP32-C5-DevKitC-1 + MPU-6050 (DMP) + 2× DRV2605L ERM actuators, both the
 IMU and the actuators reached via a TCA9548A I2C mux + native BLE.
 
 Tremor detection (dual-channel gyro+accel, adaptively calibrated, 3-gate)

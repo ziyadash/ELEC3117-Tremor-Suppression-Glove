@@ -45,22 +45,24 @@
 
 #define MUX_RST_PIN 27
 #define SAMPLE_PERIOD_MS 20  /* 50 Hz - matches tremor_detect.ino's FS_HZ assumption */
+#define DRIVE_MIN 20  /* floor once active - stays perceptible right at threshold crossing */
+#define DRIVE_MAX 50  /* cap, not the DRV2605L's 0-127 range - keep conservative, a wire sheared off during high-intensity bring-up */
+#define DRIVE_FULL_SCALE_RATIO 2.5f  /* rms/threshold at which drive saturates at DRIVE_MAX */
 
 static uint8_t s_hapticChannelOk = 0;
 static uint32_t s_nextSampleDue = 0;
 
-/* Linear drive scaled by how far the leading channel's RMS sits above its
-   threshold once active; 0 otherwise. No PI controller, no per-channel
-   weighting - see tremor_glove's plan notes if you want to add
-   differentiated intensity by motor placement later. */
+/* Scales linearly with how far the leading channel's RMS sits above its
+   adaptive threshold - stronger tremor, stronger buzz - clamped to
+   [DRIVE_MIN, DRIVE_MAX]. tr.threshold is always > 0 whenever tr.active
+   (calibration floors it before gates can pass), so this division is safe. */
 static uint8_t compute_drive(const TremorResult &tr) {
-  if (!tr.active || tr.threshold <= 0.0f) return 0;
-
+  if (!tr.active) return 0;
   float ratio = tr.rms / tr.threshold;
-  float scaled = (ratio - 1.0f) * 64.0f;
-  if (scaled < 0.0f) scaled = 0.0f;
-  if (scaled > 127.0f) scaled = 127.0f;
-  return (uint8_t)scaled;
+  float t = (ratio - 1.0f) / (DRIVE_FULL_SCALE_RATIO - 1.0f);
+  if (t < 0.0f) t = 0.0f;
+  if (t > 1.0f) t = 1.0f;
+  return (uint8_t)(DRIVE_MIN + t * (DRIVE_MAX - DRIVE_MIN));
 }
 
 void setup() {

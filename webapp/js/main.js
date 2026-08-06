@@ -16,6 +16,7 @@ import { rollScope, accelScope, drawTrace, pushHistory } from './scopes.js';
 import { quatToEuler } from './euler.js';
 import { lowPassAccel, integratePosition, resetPositionState, position } from './position.js';
 import { updateTremorDisplay, resetTremorDisplay } from './tremor.js';
+import { startSession, recordTremorSample, recordMotorSample } from './session.js';
 
 // ---------------- Config: must match the ESP32 firmware UUIDs ----------------
 const SERVICE_UUID = 'a1b2c3d4-0001-4a5b-8c6d-1234567890ab';
@@ -73,6 +74,7 @@ function handleNotification(event) {
   const tremorRms = dv.getFloat32(42, true);
   const tremorThreshold = dv.getFloat32(46, true);
   const tremorFreqHz = dv.getFloat32(50, true);
+  const driveIntensity = dv.getUint8(54);
 
   packetCount++;
 
@@ -131,6 +133,14 @@ function handleNotification(event) {
   // Tremor detection runs on-device now (tremor_glove/tremor_detect.ino) —
   // this just displays whatever the firmware already decided.
   updateTremorDisplay(tremorActive, leadChannel, tremorRms, tremorThreshold, tremorFreqHz);
+
+  // Recorded regardless of whether the tremor panel is currently shown -
+  // that toggle only controls the display, not what the firmware decided.
+  // threshold <= 0 means the firmware is still calibrating (see tremor.js) -
+  // ratio 0 in that case, same as idle, rather than dividing by zero.
+  const tremorRatio = tremorThreshold > 0 ? tremorRms / tremorThreshold : 0;
+  recordTremorSample(tremorActive, tremorRatio);
+  recordMotorSample(driveIntensity);
 }
 
 async function connect() {
@@ -160,6 +170,7 @@ async function connect() {
     emptyHint.style.display = 'none';
     connectBtn.textContent = 'Connected';
     connectBtn.disabled = true;
+    startSession();
   } catch (err) {
     console.error(err);
     showError('Connection failed: ' + err.message);

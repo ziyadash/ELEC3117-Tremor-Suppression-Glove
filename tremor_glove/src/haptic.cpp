@@ -9,7 +9,7 @@
 #define DRV_REG_FEEDBACK_CTRL 0x1A
 
 #define DRV_MODE_RTP     0x05  /* Real-Time Playback mode */
-#define DRV_FEEDBACK_LRA 0x80  /* FEEDBACK_CTRL bit 7: LRA mode */
+#define DRV_FEEDBACK_ERM 0x00  /* FEEDBACK_CTRL bit 7: ERM mode (0 = ERM, 1 = LRA) */
 
 const uint8_t HAPTIC_MUX_CHANNELS[HAPTIC_CHANNELS] = {2, 3};
 
@@ -28,7 +28,7 @@ uint8_t haptic_init() {
 
     bool ok = true;
     ok &= drv_write_reg(DRV_REG_MODE, DRV_MODE_RTP);
-    ok &= drv_write_reg(DRV_REG_FEEDBACK_CTRL, DRV_FEEDBACK_LRA);
+    ok &= drv_write_reg(DRV_REG_FEEDBACK_CTRL, DRV_FEEDBACK_ERM);
     ok &= drv_write_reg(DRV_REG_RTP_INPUT, 0x00);
 
     mux_deselect();
